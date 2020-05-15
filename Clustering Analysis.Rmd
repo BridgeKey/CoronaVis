@@ -45,8 +45,10 @@ COVID19Final <- COVID19 %>%
   mutate(cumulative_deaths = cumsum(na.omit(deaths))) %>%
   mutate(daily_change = deaths - lag(deaths,1)) %>%
   mutate(daily_change = ifelse(!is.finite(daily_change),NA,daily_change)) %>%
-  mutate(weekly_average_change = rollapply(daily_change,14,mean, na.rm=T, align='right', fill=NA)) %>%
-  mutate(weekly_average_change = ifelse(!is.finite(weekly_average_change),NA,weekly_average_change)) %>%
+  mutate(daily_change_average = rollapply(daily_change,14,mean, na.rm=T, align='right', fill=NA)) %>%
+  mutate(daily_change_average = ifelse(!is.finite(daily_change_average),NA,round(daily_change_average,0))) %>%
+  mutate(weekly_average_deaths = rollapply(deaths,14,mean, na.rm=T, align='right', fill=NA)) %>%
+  mutate(weekly_average_deaths = ifelse(!is.finite(weekly_average_deaths),NA,round(weekly_average_deaths,0))) %>%
   mutate(y1 = FIPS*1000-daily_change) %>%
   mutate(FIPS_String = str_pad(FIPS,5,pad="0")) %>%
   mutate(Total_Deaths_2019 = Deaths_2019/365) %>%
@@ -182,12 +184,12 @@ ggplotly(
                          label2 = deaths,
                          label3 = cumulative_deaths,
                          label4 = state,
-                         label5 = weekly_average_change)) +
+                         label5 = daily_change_average)) +
           geom_segment(aes(color = state, 
                            x=cumulative_deaths,
                            xend=cumulative_deaths,
                            y=Pop_Estimate_2019,
-                           yend=Pop_Estimate_2019+weekly_average_change)) +
+                           yend=Pop_Estimate_2019+daily_change_average)) +
           geom_segment(aes(color = state, 
                              x=cumulative_deaths,
                              xend=cumulative_deaths,
