@@ -1,0 +1,289 @@
+---
+title: "Reimagining Coronavirus Visuals"
+author: "Francis Britschgi"
+Updated on: "5/12/2020"
+output: html_document
+---
+```{r date, include = F}
+update_day = format(Sys.Date(), format="%B %d %Y")
+data_day = format(Sys.Date()-2, format="%B %d %Y")
+```
+
+*Publication Updated on `r update_day`*
+
+```{r setup, include=F}
+setwd("C:/Users/frbrit/Documents")
+
+library(dplyr)
+library(zoo)
+library(stringr)
+
+library(plotly)
+library(viridis)
+library(ggthemes)
+
+x <-"https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv"
+original_COVID19 <- read.csv(x)
+COVID19 <- original_COVID19
+National <- COVID19 %>%
+  group_by(date) %>%
+  summarise(deaths=sum(deaths)) %>%
+  mutate(state = "-Nationwide-") %>%
+  mutate(fips = 0)
+COVID19 <- bind_rows(National,COVID19)
+colnames(COVID19)[4] <- "FIPS"
+CensusData <- read.csv("~/Academy PreWork/COVID Demo/CensusData.csv")
+COVID19 <- merge(COVID19,CensusData[,c(4,6,8,9)], 
+                 by = "FIPS")
+
+COVID19Final <- COVID19 %>%
+  filter(!is.na(FIPS)) %>%
+  mutate(date = as.Date(date)) %>%
+  group_by(FIPS) %>%
+  arrange(FIPS,date) %>%
+  mutate(deaths = deaths - lag(deaths,1)) %>%
+  mutate(deaths = ifelse(is.na(deaths),0,deaths)) %>%
+  mutate(deaths_weekly_average = rollapply(deaths,7,mean,na.rm=T,align='right',fill=NA)) %>%
+  mutate(max_deaths = max(deaths, na.rm = T)) %>%
+  mutate(max_average_deaths = max(deaths_weekly_average, na.rm = T)) %>%
+  mutate(most_recent_date = max(date, na.rm = T)) %>%
+  mutate(most_recent_deaths = deaths[date == most_recent_date]) %>%
+  mutate(prop_of_maxdeaths = deaths/max_deaths) %>%
+  mutate(cumulative_deaths = cumsum(na.omit(deaths))) %>%
+  mutate(daily_change = deaths - lag(deaths,1)) %>%
+  mutate(daily_change = ifelse(!is.finite(daily_change),NA,daily_change)) %>%
+  mutate(daily_change_average = rollapply(daily_change,7,mean, na.rm=T, align='right', fill=NA)) %>%
+  mutate(daily_change_average = ifelse(!is.finite(daily_change_average),NA,round(daily_change_average,2))) %>%
+  mutate(most_recent_change = daily_change_average[date == most_recent_date]) %>%
+  mutate(weekly_average_deaths = rollapply(deaths,7,mean, na.rm=T, align='right', fill=NA)) %>%
+  mutate(weekly_average_deaths = ifelse(!is.finite(weekly_average_deaths),NA,round(weekly_average_deaths,0))) %>%
+  mutate(y1 = FIPS*1000-daily_change) %>%
+  mutate(FIPS_String = str_pad(FIPS,5,pad="0")) %>%
+  mutate(Total_Deaths_2019 = Deaths_2019/365) %>%
+  mutate(Total_Deaths_per_100k_2019 = 100000* Deaths_2019/Pop_Estimate_2019) %>%
+  mutate(Deaths_per_100k = 100000*deaths/Pop_Estimate_2019) %>%
+  mutate(Total_Deaths_per_100k = 100000*cumulative_deaths/Pop_Estimate_2019) %>%
+  mutate(Density_Estimate.2019 = as.numeric(Density_Estimate.2019)) %>%
+  mutate(pending = ifelse(date > Sys.Date()-7, .5,1)) %>%
+  #filter(deaths >0) %>%
+  mutate(first_death = min(date, na.rm = T)) %>%
+  mutate(textx = 0.2*(most_recent_date - first_death) + first_death) %>%
+  mutate(texty = 0.8*max_average_deaths)
+  COVID19Final$state_order <- factor(COVID19Final$state, levels = levels(reorder(COVID19Final$state, -COVID19Final$most_recent_deaths)))
+  COVID19Final$state_order2 <- factor(COVID19Final$state, levels = levels(reorder(COVID19Final$state, -COVID19Final$most_recent_change)))
+```
+
+*Plotting a moving average of new deaths per day for all 50 states, DC, and a national total. The number and color refer to magnitude of deaths for the day on which data is most recently available (`r data_day`).*
+
+```{r preview, echo=FALSE, warning=FALSE, fig.width=10}
+ggplotly(
+          p = ggplot(data=COVID19Final) +
+          geom_line(aes(color = log(most_recent_deaths+1),
+                        x=date,y=deaths_weekly_average, 
+                        label1 = date, 
+                        label2 = deaths, 
+                        label3 = Total_Deaths_2019)) + 
+          geom_text(aes(color = log(most_recent_deaths+1),
+                        x=textx,
+                        y=texty,
+                        label4 = most_recent_date,
+                      label = most_recent_deaths), alpha=1) + 
+          scale_colour_gradient(low = "grey", high = "darkred") +
+          theme_tufte(ticks = F) +
+          theme(axis.title = element_blank(),
+                axis.text = element_blank(),
+                legend.position = "none") +
+          labs(title = "Deaths per Day - Sorted by State") +
+          facet_wrap(~state, scales = "free"),
+      dynamicTicks = F, tooltip = c("state", "label1", "label2", "label3", "label4"))
+```
+
+## Goals and Inspiration
+
+In the context of the 2020 Coronavirus pandemic, data presentation has an underspoken role in guiding both public perception and policy. Concerned Americans are filled with comparative questions which are incredibly difficult to answer with tabular data. Are **less** people dying? Is my state faring **worse** than others? Is the recovery **similar** across all states? The visualizations that we use to translate the data are critical towards understanding and making these comparisons. To begin with, the figure below is a reproduction of the chart displayed at many recent [White House press briefings](https://ca-times.brightspotcdn.com/dims4/default/4482c04/2147483647/strip/true/crop/4624x2601+0+241/resize/1200x675!/quality/90/?url=https%3A%2F%2Fcalifornia-times-brightspot.s3.amazonaws.com%2Fdd%2F9a%2F0365b52d43b3a52f174a3ed21028%2Fvirus-outbreak-trump-34918.jpg). This chart places the daily cumulative total of deaths for all 50 states on a shared set of axis. This is the bare minimum of data visualization, and its design actually obfuscates important information.
+
+```{r plot1, echo=FALSE, warning=FALSE,fig.width=10, fig.height=3, fig.align='center'}
+ggplot(data=subset(COVID19Final, state != "-Nationwide-")) +
+          geom_line(aes(color = state,
+                        x=date,
+                        y=Total_Deaths_per_100k,
+                        label1 = date, 
+                        label2 = cumulative_deaths, 
+                        label3 = deaths,
+                        label4 = Total_Deaths_per_100k_2019)) + 
+          theme_tufte(ticks = F) +
+          theme(axis.title.y = element_text(size=12)) +
+          #guides(color = T) +  
+          scale_y_continuous(labels = scales::comma) +
+          labs(x = "Date",
+               y = "Cumulative Deaths per 100k",
+               title = "Cumulative Deaths per 100k by State")
+
+```
+
+* The scale is set by the Cumulative Deaths in New York state, which is far above the other states. This compresses the rest of the data points to an unreadable spread.
+
+* The slope of the Cumulative Deaths is the number of new deaths per day - a key metric in tracking coronavirus recovery. However, the graphic leaves the determination of that slope to the viewer's eyeball.
+
+* The only effective baselines for comparison are 0 and the Cumulative Deaths for New York. Without any kind of national total or average, the viewer is left to judge their state's impact only in reference to New York, an arbitrary baseline.
+
+* The graphic shown by the White House and similar ones by other media groups lack interactive filtering and tooltips. The graphic is limited to interpreting the data as it is statically presented - lending itself only to finger pointing for highlighting data points.
+
+* Don't get me started on the legend.
+
+## Addressing these Gaps
+
+The issues above can be addressed with two main changes to the graphic:
+
+1. Introducing interactability to the graphic so that it can be filtered and hoverable by the viewer. Ideally, the viewer should be able to highlight groups within the graphic for comparison.
+
+2. Produce, without clutter, metrics other than Cumulative Deaths, so that the nuances of the changes in coronavirus fatality can be fully understood.
+
+By utilizing the Plotly front-end user interface, this can be accomplished relatively simply. Plotly enables for interactive plots from R, with excellent features for filtering, panning, and making comparisons on data in shared x-values. This address **Change 1**. By placing Cumulative Deaths, New Deaths per Day, and New Deaths per Day per 100,000 on a shared axis of Date, we accomplish **Change 2**.
+
+**Features of the Plot:**
+
+* Hover over any datapoint to see detailed information as well as supplementary info. For example, hovering over a point in the Daily Deaths graphic displays the number of Deaths due to coronavirus and the total number of deaths expected using the 2019 average.
+
+* Double-click a state in the legend to isolate that state. For example, you will notice that a state called *-Nationwide-* is now included in the data. Doubleclick this item to show only the data for Nationwide deaths.
+
+* Single-click a state to add or a remove a state from the plot. For example, after you have double-clicked *Nationwide*, single-click *New York* to compare the two areas. Then, single-click *California* to include it as well.
+
+* In the far upper right of the graphic, click the two-tag symbol next to the blue square. It should say *Compare data on hover*. Hover details for all data points will now be shown for any date that is hovered over. Try this with the *Nationwide - New York - California* selection.
+
+```{r plot2, echo=FALSE, warning=FALSE,fig.width=10, fig.height=5, fig.align='center'}
+p1 <- ggplotly(
+          p = ggplot(data=COVID19Final) +
+          geom_line(aes(color = state,
+                        x=date,
+                        y=cumulative_deaths,
+                        label1 = date, 
+                        label2 = cumulative_deaths, 
+                        label3 = deaths)) + 
+          scale_color_viridis(discrete = T) +
+          theme_tufte(ticks = F) +
+          theme(plot.title = element_text(size = 10),
+                axis.title.y = element_text(size=8)) +
+          guides(color = F, linetype = F) +  
+          scale_y_continuous(labels = scales::comma) +
+          labs(title = "Deaths by State",
+               x = "Date",
+               y = "Cumulative <br> Deaths"),
+      dynamicTicks = T, tooltip = c("state", "label1", "label2"), alpha=.8) 
+
+p2 <- ggplotly(
+          p = ggplot(data=COVID19Final) +
+          geom_line(aes(color = state,
+                        x=date,y=deaths, 
+                        label1 = date, 
+                        label2 = deaths, 
+                        label3 = Total_Deaths_2019), alpha=.8) + 
+          scale_color_viridis(discrete = T) +
+          theme_tufte(ticks = F) +
+          theme(axis.title.y = element_text(size=8)) +
+          guides(color = F) +
+          scale_y_continuous(labels = scales::comma) +
+          labs(x = "Date",
+               y = "Daily <br> Deaths"),
+      dynamicTicks = T, tooltip = c("state", "label1", "label2", "label3"))
+
+p3 <- ggplotly(
+      p = ggplot(data=COVID19Final) +
+        geom_line(aes(color = state,
+                      x=date,
+                      y=Deaths_per_100k, 
+                      label1 = date, 
+                      label2 = Deaths_per_100k, 
+                      label3 = Total_Deaths_per_100k_2019), alpha=.8) + 
+        scale_color_viridis(discrete = T) +
+        theme_tufte(ticks = F) +
+        theme(axis.title.y = element_text(size=8)) +
+        guides(color = F) +
+        scale_y_continuous(labels = scales::comma) +
+        labs(x = "Date",
+             y = "Daily Deaths <br> per 100k People"),
+      dynamicTicks = T, tooltip = c("state", "label1", "label2", "label3"))
+
+subplot(p1,p2,p3,nrows = 3, shareX = T ,titleY = T)
+```
+
+## Using the Plot
+
+The above rework is largely sufficient for answering the questions most common in coronavirus discourse. From the three area comparison above, we can answer our original questions. The Daily Deaths chart shows us the number of national daily deaths are **trending downwards**. The Daily Deaths per 100k People shows us that the fatalatity of New York is **above** the national average when adjusted for population, and that California is **below** the national average. Double click any state to removing all filters, and then single-click *Nationwide* to remove the national total. The Daily Deaths per 100k People chart in the most recent dates shows us that three states are actually getting worse in proportion to their population: *New Jersey*, *Connecticut*, and *Massachusetts*. Filter to these states to explore more.
+
+## Going Further
+
+I was also interested in taking complete creative license with the data in order to explore novel visualizations. Rather than constraining the x-axis to time, which marches along in an entirely predicatable linear fashion, why not provide the x-axis with a more interesting variable. I explored the idea of a bar chart, representing Cumulative Deaths for a region, that was filled as time went by. The idea floundered in rendering. Instead, a dot plot, where each dot is the cumulative total for that day. That way, the distance between dots would indicate the speed by which the cumulative total is increasing. The result:
+
+```{r plot3, echo=FALSE, warning=FALSE,fig.width=10, fig.height=3, fig.align='center'}
+ggplotly(
+          p = ggplot(data=COVID19Final) +
+          geom_point(aes(color = state,
+                         y=Pop_Estimate_2019,
+                         x=cumulative_deaths, 
+                         label1 = date, 
+                         label2 = deaths,
+                         label3 = cumulative_deaths,
+                         label4 = state,
+                         label5 = daily_change_average)) +
+          geom_segment(aes(color = state, 
+                           x=cumulative_deaths,
+                           xend=cumulative_deaths,
+                           y=Pop_Estimate_2019,
+                           yend=Pop_Estimate_2019+daily_change_average)) +
+          geom_segment(aes(color = state, 
+                             x=cumulative_deaths,
+                             xend=cumulative_deaths,
+                             y=Pop_Estimate_2019,
+                             yend=Pop_Estimate_2019+deaths),
+                             alpha=.2) +
+          guides(color=F) +
+          scale_color_viridis(discrete = T, begin=0, end=.9) +
+          theme_tufte(ticks = F) +
+          labs(y = "Population Size",
+               x = "Cumulative Deaths"), 
+      dynamicTicks = T, tooltip = c("label1", "label2", "label3", "label4", "label5")) %>%
+      layout(title = list(text = paste0('Cumulative Deaths by Population',
+                                        '<br>',
+                                        '<sup>',
+                                        'Each Dot Represents Cumulative Total by Day',
+                                        '</sup>')))
+
+```
+
+## Using the Plot
+
+**1. Overall Layer**
+
+The default view acts as a horizontal bar chart. States are plotted by population, but as population remains constant, each state occupies only one row of the chart. The horizontal length of each state represents the Cumulative Deaths at the most recent date. Of course, the *Nationwide* Cumulative Deaths and Population exceed any state. As noted previously, each dot represents a new day, so large horizontal distance between dates represent a large number of deaths for that day. We can filter out national totals to see the states more clearly by single-clicking on *Nationwide*.
+
+**2. All States Layer**
+
+Filtered down to states, we can see how the states are distributed by population. This enables appropriate comparisons and identification of trends. For example, *New York* has the largest number of Cumulative Deaths, but is the 4th largest in terms of population, making it a true outlier in the impact of Coronavirus. This inbalance is also true for *New Jersey*. Let's filter to two states for comparison by double-clicking on *Michigan* and then single-clicking on *New Jersey*. With similar populations, it is more reasonable to compare these states. 
+
+Let's activate the *Compare data on hover* tool in the upper right of the plot. By placing the cursor in the space between the two lines of dots, we can see at what date the two states had the same number of cumulative dates. For exampl,e by hovering over the *4,000 death* mark, we can see that on 5/2/2020, Michigan reached 4,020 cumulative deaths, and that New Jersey had reached 4,080 deaths back on 4/18/20. It would be interesting for policy makers in Michigan to therefor look at the policy decisions made in New Jersey back on 4/18 and see if there was anything to be learned.
+
+**3. Single State Layer**
+
+Now, let's isolate a single state - *New York*. Double-click to isolate the state. We now see a very different picture. The dots still align with the cumulative total for a given date, but we have two new pieces of information plotted on the chart.
+
+* A shaded line, which represents the number of deaths on that day.
+
+* A solid line, which represents the average change in number of deaths per day over the 2 weeks prior to that date. A slippery concept to be sure, but bear with me. This figure is calculated by taking the moving average of daily increase in deaths over the past two weeks. However, we are less concerned with the actual figure, and more with its **scale and direction**. 
+
+  + A large, upward segment, means that on average, deaths per day are increasingly quickly
+  + A Zero, or absent segment, means that on average, deaths per day are staying constant
+  + A large, downward segment, means that on average, deaths per day are decreasingly quickly
+  
+Taken together, this view gives us a sense of the scale of deaths **(Cumulative Deaths)**, the rate of increase in those Cumulative Deaths **(the shaded line representing deaths OR the size of the gap between dots)**, and the change in the deaths per day over time **(the solid line OR the vertical change in the deaths per day lines)**
+
+For New york, we can see that the deaths per day were increasing until about 4/17/2020, quickly at first and then more slowly. On 4/17, the deaths per day began a steady decrease, reflected by both the downwards solid lines, and the smaller shaded lines. A particularly deadly day on 5/6 is the exception of a much-improving situation in New York over the past 2 weeks, with an average decrease of 11 new deaths per day over the 2 weeks ending on 5/14.
+
+## Conclusion
+
+Hopefully, this paper has given the reader some new insights in what they can and should expect from modern Data Visualizations. As Edward Tufte puts it, the guiding principle for design is thus:
+
+> Graphical Excellence is that which gives to the viewer the greatest number of ideas in the shortest time with the least ink in the smallest space.
+
+I have tried my best to reimagine Coronavirus visualizations in the context of this advice, and would love to hear what you like, and especially what you don't like, about my efforts. Please contact me at francisabritschgi@gmail.com to share whatever feedback or questions you have. 
+
