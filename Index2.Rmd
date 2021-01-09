@@ -69,10 +69,10 @@ COVID19Final <- COVID19 %>%
 COVID19Final$state_order <- factor(COVID19Final$state, levels = levels(reorder(COVID19Final$state, -COVID19Final$most_recent_deaths)))
 COVID19Final$state_order2 <- factor(COVID19Final$state, levels = levels(reorder(COVID19Final$state, -COVID19Final$trajectory)))
 
-vietnams = round(max(COVID19Final$cumulative_deaths)/58220,2)
+civilwars = round(max(COVID19Final$cumulative_deaths)/620000,2)
 ```
 
-Total Coronavirus deaths in the US are currently at `r vietnams` Vietnam Wars. As the scale of the impact on the United States escapes our intuitive grasp, it is more important than ever to have effective data visualizations of effective metrics. Deaths per day is the best variable we have for realistically assessing Coronavirus within the country. It is a weighted function of the number of cases within a state and the state's ability to address those cases. By looking at this one metric - deaths per day - we can quickly come to an understanding of the levels of crisis in each state.
+Total Coronavirus deaths in the US are currently at `r civilwars` US Civil Wars. As the scale of the impact on the United States escapes our intuitive grasp, it is more important than ever to have effective data visualizations of effective metrics. Deaths per day is the best variable we have for realistically assessing Coronavirus within the country. It is a weighted function of the number of cases within a state and the state's ability to address those cases. By looking at this one metric - deaths per day - we can quickly come to an understanding of the levels of crisis in each state.
 
 *Plot of a 7-day moving average of new deaths per day for all 50 states, DC, and a national total. The moving average is used to smooth out spikes in under-reporting on weekends. The number and color for each state refer to the number of deaths for the day on which data is most recently available (`r data_day`).*
 
